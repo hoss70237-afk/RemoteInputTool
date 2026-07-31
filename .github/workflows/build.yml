@@ -1,0 +1,28 @@
+name: Build App
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '7.0.x'
+
+    - name: Build Project
+      run: dotnet build RemoteInputTool.csproj -c Release
+
+    - name: Upload EXE File
+      uses: actions/upload-artifact@v3
+      with:
+        name: RemoteInputTool-App
+        path: bin/Release/net472/
