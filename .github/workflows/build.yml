@@ -19,10 +19,12 @@ jobs:
         dotnet-version: '8.0.x'
 
     - name: Build Project
-      run: dotnet build -c Release
+      # フォルダの中にある csproj を指定
+      run: dotnet build RemoteInputTool/RemoteInputTool.csproj -c Release
 
     - name: Upload EXE File
       uses: actions/upload-artifact@v4
       with:
         name: RemoteInputTool-App
-        path: bin/Release/net472/
+        # 出力先のパスもフォルダの中に合わせる
+        path: RemoteInputTool/bin/Release/net472/
