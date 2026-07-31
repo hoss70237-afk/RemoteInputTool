@@ -19,7 +19,7 @@ jobs:
         dotnet-version: '8.0.x'
 
     - name: Build Project
-      run: dotnet build RemoteInputTool.csproj -c Release
+      run: dotnet build -c Release
 
     - name: Upload EXE File
       uses: actions/upload-artifact@v4
