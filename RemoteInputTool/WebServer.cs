@@ -164,7 +164,14 @@ namespace RemoteInputTool
                 while (isConnected) {
                     int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
                     if (bytesRead == 0) break;
-                    foreach (var cmd in DecodeWebSocketFrames(buffer, bytesRead)) if (cmd != null) HandleCommand(cmd);
+                    var cmds = DecodeWebSocketFrames(buffer, bytesRead);
+                    foreach (var cmd in cmds) {
+                        if (cmd.ContainsKey("_close_")) {
+                            isConnected = false;
+                            break;
+                        }
+                        if (cmd != null) HandleCommand(cmd);
+                    }
                 }
             }
             catch { }
@@ -188,7 +195,12 @@ namespace RemoteInputTool
         {
             var res = new List<Dictionary<string, object>>(); int pos = 0;
             while (pos < length - 2) {
-                int opcode = buffer[pos] & 15; if (opcode == 8) break;
+                int opcode = buffer[pos] & 15; 
+                if (opcode == 8) {
+                    res.Add(new Dictionary<string, object> { { "_close_", true } });
+                    break;
+                }
+                
                 bool mask = (buffer[pos + 1] & 128) != 0; int len = buffer[pos + 1] & 127;
                 int off = pos + 2; if (len == 126) off += 2; else if (len == 127) off += 8;
                 if (off > length || !mask) break;
@@ -209,7 +221,9 @@ namespace RemoteInputTool
                 if (action == "change_area") {
                     int i = Convert.ToInt32(cmd["index"]);
                     Application.Current.Dispatcher.Invoke(() => {
-                        MainWindow.CurrentCaptureArea = i == -1 ? new Rect(0, 0, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight) : MainWindow.AppConfig.CaptureAreas[i].Area;
+                        MainWindow.CurrentCaptureArea = i == -1 
+                            ? new Rect(0, 0, SystemParameters.PrimaryScreenWidth * MainWindow.DpiX, SystemParameters.PrimaryScreenHeight * MainWindow.DpiY) 
+                            : MainWindow.AppConfig.CaptureAreas[i].Area;
                     });
                 }
                 else if (action == "move") InputEmulator.MoveMouse(Convert.ToDouble(cmd["x"]), Convert.ToDouble(cmd["y"]), MainWindow.CurrentCaptureArea);
