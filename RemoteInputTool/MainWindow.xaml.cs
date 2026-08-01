@@ -18,8 +18,6 @@ namespace RemoteInputTool
         public static Config AppConfig { get; set; } = new Config();
         private WebServer _webServer;
         private ScreenCapture _screenCapture;
-        
-        // 【修正】カレントディレクトリに依存しない絶対パス化
         private string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "server_config.json");
 
         public MainWindow()
@@ -38,9 +36,81 @@ namespace RemoteInputTool
             StatusTextBlock.Text = "サーバー稼働中...";
         }
 
-        /* ... SetupNotifyIcon から DragSelect_Click までは変更なし ... */
+        private void SetupNotifyIcon()
+        {
+            _notifyIcon = new System.Windows.Forms.NotifyIcon
+            {
+                Icon = System.Drawing.SystemIcons.Application,
+                Visible = true,
+                Text = "スマホ用リモート入力ツール"
+            };
+            _notifyIcon.DoubleClick += (s, e) => { Show(); WindowState = WindowState.Normal; };
+        }
 
-        // 【修正】仮想IPを避け、正しいローカルIPを取得するロジックに変更
+        private void Window_StateChanged(object sender, EventArgs e)
+        {
+            if (WindowState == WindowState.Minimized) Hide();
+        }
+
+        private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            _notifyIcon.Dispose();
+            _webServer.Stop();
+            _screenCapture.Stop();
+            SaveConfig();
+        }
+
+        private void LoadConfig()
+        {
+            if (File.Exists(configPath))
+            {
+                var json = File.ReadAllText(configPath);
+                AppConfig = new JavaScriptSerializer().Deserialize<Config>(json);
+            }
+            if (AppConfig.Apps == null || !AppConfig.Apps.Any())
+            {
+                AppConfig.Apps = Enumerable.Range(1, 10).Select(i => new AppItem { Id = i, Name = $"App{i}", Path = "" }).ToList();
+            }
+        }
+
+        private void SaveConfig()
+        {
+            var json = new JavaScriptSerializer().Serialize(AppConfig);
+            File.WriteAllText(configPath, json);
+        }
+
+        private void InitializeAppList() => AppItemsControl.ItemsSource = AppConfig.Apps;
+
+        private void SaveApp_Click(object sender, RoutedEventArgs e) => SaveConfig();
+
+        private void FullScreen_Click(object sender, RoutedEventArgs e)
+        {
+            AppConfig.CaptureArea = new Rect(0, 0, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
+            SaveConfig();
+            MessageBox.Show("全画面を設定しました。");
+        }
+
+        private void DragSelect_Click(object sender, RoutedEventArgs e)
+        {
+            var overlay = new Window
+            {
+                WindowStyle = WindowStyle.None, AllowsTransparency = true, Background = new SolidColorBrush(Color.FromArgb(100, 0, 0, 0)),
+                Topmost = true, Left = 0, Top = 0, Width = SystemParameters.PrimaryScreenWidth, Height = SystemParameters.PrimaryScreenHeight,
+                Cursor = Cursors.Cross
+            };
+            Point startPoint = new Point();
+            overlay.MouseDown += (s, ev) => { startPoint = ev.GetPosition(overlay); };
+            overlay.MouseUp += (s, ev) =>
+            {
+                var endPoint = ev.GetPosition(overlay);
+                AppConfig.CaptureArea = new Rect(startPoint, endPoint);
+                SaveConfig();
+                overlay.Close();
+                MessageBox.Show("領域を保存しました。");
+            };
+            overlay.ShowDialog();
+        }
+
         private string GetLocalIPAddress()
         {
             string localIP = "127.0.0.1";
@@ -65,7 +135,6 @@ namespace RemoteInputTool
             return localIP;
         }
     }
-
 
     public class Config
     {
