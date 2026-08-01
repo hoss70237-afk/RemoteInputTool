@@ -1,7 +1,7 @@
 <Window x:Class="RemoteInputTool.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="スマホ用リモート入力ツール" Height="450" Width="600" Closing="Window_Closing" StateChanged="Window_StateChanged">
+        Title="スマホ用リモート入力ツール" Height="500" Width="650" Closing="Window_Closing" StateChanged="Window_StateChanged">
     <TabControl>
         <TabItem Header="メイン">
             <Grid Margin="10">
@@ -31,6 +31,7 @@
                 <TextBlock x:Name="StatusTextBlock" Foreground="Green" FontWeight="Bold" Grid.Row="5"/>
             </Grid>
         </TabItem>
+        
         <TabItem Header="アプリ設定">
             <ScrollViewer>
                 <ItemsControl x:Name="AppItemsControl" Margin="10">
@@ -46,6 +47,43 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </ScrollViewer>
+        </TabItem>
+
+        <TabItem Header="グリッド設定">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal" Margin="10">
+                    <TextBlock Text="分割数選択:" VerticalAlignment="Center"/>
+                    <ComboBox x:Name="GridSplitCombo" Width="120" Margin="10,0" SelectionChanged="GridSplitCombo_SelectionChanged">
+                        <ComboBoxItem Content="2分割 (左右)"/>
+                        <ComboBoxItem Content="4分割 (上下左右)"/>
+                        <ComboBoxItem Content="9分割 (3x3)"/>
+                    </ComboBox>
+                    <Button Content="設定を保存" Click="SaveGrid_Click" Width="80"/>
+                </StackPanel>
+                <ScrollViewer Grid.Row="1">
+                    <ItemsControl x:Name="GridCellsControl" Margin="10">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="0,5">
+                                    <TextBlock Text="{Binding Label}" Width="60" VerticalAlignment="Center" FontWeight="Bold"/>
+                                    <TextBlock Text="動作:" VerticalAlignment="Center" Margin="5,0,0,0"/>
+                                    <ComboBox SelectedValue="{Binding ActionType, Mode=TwoWay}" SelectedValuePath="Content" Width="80" Margin="5,0">
+                                        <ComboBoxItem Content="Mouse"/>
+                                        <ComboBoxItem Content="Key"/>
+                                        <ComboBoxItem Content="App"/>
+                                    </ComboBox>
+                                    <TextBlock Text="値/パス:" VerticalAlignment="Center" Margin="5,0,0,0"/>
+                                    <TextBox Text="{Binding Detail, Mode=TwoWay}" Width="250" Margin="5,0" ToolTip="Mouse: Left/Right/Middle, Key: Enter/Ctrl+C等, App: exe等のパス"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
         </TabItem>
     </TabControl>
 </Window>
