@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Web.Script.Serialization;
+using System.Linq; // 追加
 
 namespace RemoteInputTool
 {
@@ -16,8 +17,11 @@ namespace RemoteInputTool
         private HttpListener _listener;
         private ScreenCapture _capture;
         private HashSet<string> _allowedIps;
-        private string ipsFilePath = "allowed_ips.json";
         private JavaScriptSerializer _json = new JavaScriptSerializer();
+        private readonly object _ipsLock = new object();
+        
+        // 【修正】カレントディレクトリに依存しない絶対パス化
+        private string ipsFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_ips.json");
 
         public WebServer(ScreenCapture capture)
         {
@@ -36,7 +40,8 @@ namespace RemoteInputTool
         public void Start()
         {
             _listener = new HttpListener();
-            _listener.Prefixes.Add("http://*:5360/");
+            // 【修正】* ではなく + を指定（管理者権限で確実にバインドさせるため）
+            _listener.Prefixes.Add("http://+:5360/");
             _listener.Start();
             Task.Run(ListenLoop);
         }
@@ -50,47 +55,87 @@ namespace RemoteInputTool
                 try
                 {
                     var context = await _listener.GetContextAsync();
-                    string ip = context.Request.RemoteEndPoint.Address.ToString();
-
-                    if (!_allowedIps.Contains(ip) && ip != "127.0.0.1")
-                    {
-                        bool isAllowed = false;
-                        Application.Current.Dispatcher.Invoke(() =>
-                        {
-                            var res = MessageBox.Show($"IP: {ip} からの接続要求があります。許可しますか？", "セキュリティ確認", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No, MessageBoxOptions.DefaultDesktopOnly);
-                            isAllowed = (res == MessageBoxResult.Yes);
-                        });
-
-                        if (isAllowed)
-                        {
-                            _allowedIps.Add(ip);
-                            File.WriteAllText(ipsFilePath, _json.Serialize(_allowedIps));
-                        }
-                        else
-                        {
-                            context.Response.StatusCode = 403;
-                            context.Response.Close();
-                            continue;
-                        }
-                    }
-
-                    if (context.Request.IsWebSocketRequest)
-                        _ = ProcessWebSocket(context);
-                    else
-                        ServeHtml(context);
+                    // 【修正】リクエスト処理を非同期に投げ、他の接続（favicon等）をブロックしないようにする
+                    _ = Task.Run(() => ProcessRequestAsync(context));
                 }
                 catch { }
             }
         }
 
+        // 【修正】1リクエストごとの処理を独立化
+        private async Task ProcessRequestAsync(HttpListenerContext context)
+        {
+            try
+            {
+                string ip = context.Request.RemoteEndPoint.Address.ToString();
+
+                bool isAllowed;
+                lock (_ipsLock) { isAllowed = _allowedIps.Contains(ip) || ip == "127.0.0.1"; }
+
+                if (!isAllowed)
+                {
+                    bool userGranted = false;
+                    Application.Current.Dispatcher.Invoke(() =>
+                    {
+                        var res = MessageBox.Show($"IP: {ip} からの接続要求があります。許可しますか？", "セキュリティ確認", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No, MessageBoxOptions.DefaultDesktopOnly);
+                        userGranted = (res == MessageBoxResult.Yes);
+                    });
+
+                    if (userGranted)
+                    {
+                        lock (_ipsLock)
+                        {
+                            _allowedIps.Add(ip);
+                            File.WriteAllText(ipsFilePath, _json.Serialize(_allowedIps.ToList()));
+                        }
+                    }
+                    else
+                    {
+                        context.Response.StatusCode = 403;
+                        context.Response.Close();
+                        return;
+                    }
+                }
+
+                if (context.Request.IsWebSocketRequest)
+                    await ProcessWebSocket(context);
+                else
+                    ServeHtml(context);
+            }
+            catch
+            {
+                // エラー時も絶対にCloseを呼び、クライアントを無限ロードにさせない
+                try { context.Response.Close(); } catch { }
+            }
+        }
+
         private void ServeHtml(HttpListenerContext context)
         {
-            string html = File.ReadAllText("WebClient.html"); // HTMLは外部ファイル、または埋め込みリソースから読み込む
-            byte[] buf = Encoding.UTF8.GetBytes(html);
-            context.Response.ContentType = "text/html";
-            context.Response.ContentLength64 = buf.Length;
-            context.Response.OutputStream.Write(buf, 0, buf.Length);
-            context.Response.Close();
+            try 
+            {
+                // 【追加】favicon 等の余分なリクエストには 404 を返し、無駄なファイル読み込みを防ぐ
+                if (context.Request.Url.AbsolutePath != "/")
+                {
+                    context.Response.StatusCode = 404;
+                    context.Response.Close();
+                    return;
+                }
+
+                // 【修正】絶対パスを使用してWebClient.htmlを読み込む
+                string htmlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebClient.html");
+                string html = File.ReadAllText(htmlPath);
+                
+                byte[] buf = Encoding.UTF8.GetBytes(html);
+                context.Response.ContentType = "text/html";
+                context.Response.ContentLength64 = buf.Length;
+                context.Response.OutputStream.Write(buf, 0, buf.Length);
+                context.Response.Close();
+            }
+            catch
+            {
+                context.Response.StatusCode = 500;
+                context.Response.Close();
+            }
         }
 
         private async Task ProcessWebSocket(HttpListenerContext context)
@@ -100,33 +145,52 @@ namespace RemoteInputTool
 
             Action<string> onImageCaptured = async (base64) =>
             {
-                if (ws.State == WebSocketState.Open)
+                // 【重要】ここの try-catch が無いと、スマホ切断時にアプリごとクラッシュする
+                try 
                 {
-                    // 実際にはマウスカーソル座標も付与して送信
-                    var payload = _json.Serialize(new { type = "image", data = base64, cursor = new { x = 0.5, y = 0.5 } });
-                    var bytes = Encoding.UTF8.GetBytes(payload);
-                    await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
-                }
+                    if (ws.State == WebSocketState.Open)
+                    {
+                        var payload = _json.Serialize(new { type = "image", data = base64, cursor = new { x = 0.5, y = 0.5 } });
+                        var bytes = Encoding.UTF8.GetBytes(payload);
+                        await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+                    }
+                } 
+                catch { }
             };
 
             _capture.OnFrameReady += onImageCaptured;
             _capture.Start();
 
             byte[] buffer = new byte[1024 * 4];
-            while (ws.State == WebSocketState.Open)
+            try
             {
-                var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                if (result.MessageType == WebSocketMessageType.Text)
+                while (ws.State == WebSocketState.Open)
                 {
-                    string msg = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    var cmd = _json.Deserialize<Dictionary<string, object>>(msg);
-                    HandleCommand(cmd);
+                    var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                    if (result.MessageType == WebSocketMessageType.Text)
+                    {
+                        string msg = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                        var cmd = _json.Deserialize<Dictionary<string, object>>(msg);
+                        HandleCommand(cmd);
+                    }
+                    else if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
+                        break;
+                    }
                 }
-                else if (result.MessageType == WebSocketMessageType.Close)
-                    await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
             }
-            _capture.OnFrameReady -= onImageCaptured;
+            catch { }
+            finally
+            {
+                // 【修正】確実な購読解除
+                _capture.OnFrameReady -= onImageCaptured;
+            }
         }
+
+        /* ... HandleCommand メソッドはそのまま ... */
+    }
+}
 
         private void HandleCommand(Dictionary<string, object> cmd)
         {
