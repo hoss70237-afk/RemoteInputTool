@@ -45,7 +45,7 @@ namespace RemoteInputTool
             SetupNotifyIcon();
             InitializeAppList();
             RefreshAreaList();
-            GridSplitCombo.SelectedIndex = 0; // 初期選択
+            GridSplitCombo.SelectedIndex = 0;
 
             string localIp = GetLocalIPAddress();
             UrlTextBox.Text = $"http://{localIp}:5360/";
@@ -55,9 +55,47 @@ namespace RemoteInputTool
             _webServer.Start();
             StatusTextBlock.Text = "サーバー稼働中...";
 
+            // 起動時のメッセージ（独自のウィンドウで厳密に1.5秒表示して消す）
             Task.Run(async () => {
                 await Task.Delay(500);
-                _notifyIcon.ShowBalloonTip(1500, "リモート入力ツール", "サーバーが最小化状態で起動しました", System.Windows.Forms.ToolTipIcon.Info);
+                Application.Current.Dispatcher.Invoke(() => ShowToastMessage("サーバーが最小化状態で起動しました"));
+            });
+        }
+
+        private void ShowToastMessage(string message)
+        {
+            var toast = new Window
+            {
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                Background = new SolidColorBrush(Color.FromArgb(220, 0, 0, 0)),
+                Topmost = true,
+                ShowInTaskbar = false,
+                SizeToContent = SizeToContent.WidthAndHeight,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen
+            };
+            
+            var border = new Border
+            {
+                CornerRadius = new CornerRadius(10),
+                Background = Brushes.Transparent,
+                Padding = new Thickness(25, 15, 25, 15)
+            };
+            var tb = new TextBlock
+            {
+                Text = message,
+                Foreground = Brushes.White,
+                FontSize = 16,
+                FontWeight = FontWeights.Bold
+            };
+            border.Child = tb;
+            toast.Content = border;
+            
+            toast.Show();
+            
+            Task.Run(async () => {
+                await Task.Delay(1500); // 確実に1.5秒待機
+                Application.Current.Dispatcher.Invoke(() => toast.Close());
             });
         }
 
