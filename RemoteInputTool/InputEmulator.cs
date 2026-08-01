@@ -28,16 +28,19 @@ namespace RemoteInputTool
 
         public static void MoveMouse(double ratioX, double ratioY, Rect area)
         {
-            double screenW = SystemParameters.VirtualScreenWidth;
-            double screenH = SystemParameters.VirtualScreenHeight;
+            // DPIスケーリングを反映した物理ピクセル座標を取得
+            double screenW = SystemParameters.VirtualScreenWidth * MainWindow.DpiX;
+            double screenH = SystemParameters.VirtualScreenHeight * MainWindow.DpiY;
+            double screenLeft = SystemParameters.VirtualScreenLeft * MainWindow.DpiX;
+            double screenTop = SystemParameters.VirtualScreenTop * MainWindow.DpiY;
             
             // 現在の領域内での絶対ピクセル座標を算出
             double targetPx = area.X + (area.Width * ratioX);
             double targetPy = area.Y + (area.Height * ratioY);
             
-            // システム全体(65535)に対する比率へ変換
-            int dx = (int)((targetPx / screenW) * 65535);
-            int dy = (int)((targetPy / screenH) * 65535);
+            // システム全体(65535)に対する比率へ変換（オフセットを考慮）
+            int dx = (int)(((targetPx - screenLeft) / screenW) * 65535);
+            int dy = (int)(((targetPy - screenTop) / screenH) * 65535);
             
             SendMouseInput(dx, dy, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK);
         }
