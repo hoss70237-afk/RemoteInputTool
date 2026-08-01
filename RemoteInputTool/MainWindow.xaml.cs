@@ -66,8 +66,6 @@ namespace RemoteInputTool
         }
     }
 
-    /* Config, AppItemクラスはそのまま */
-}
 
     public class Config
     {
