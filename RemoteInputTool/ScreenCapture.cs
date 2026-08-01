@@ -67,7 +67,6 @@ namespace RemoteInputTool
                 int x = (int)rect.X;
                 int y = (int)rect.Y;
 
-                // サイズ変更時のみインスタンスを再生成（GCによる遅延を極小化し再利用する）
                 if (bmp == null || lastW != width || lastH != height)
                 {
                     g?.Dispose();
@@ -101,13 +100,12 @@ namespace RemoteInputTool
                 }
 
                 sw.Stop();
-                // 処理にかかった時間を差し引いてSleepすることでフレームレートを安定させ遅延を防ぐ
+                // 処理にかかった時間を差し引いてSleepすることでフレームレートを安定させる
                 int targetDelay = 1000 / Math.Max(1, MainWindow.AppConfig.Fps);
                 int delay = targetDelay - (int)sw.ElapsedMilliseconds;
-                if (delay > 0)
-                {
-                    Thread.Sleep(delay);
-                }
+                
+                // CPUが1コアに張り付くのを防ぐため、最低でも1ミリ秒は必ずスレッドを休ませる
+                Thread.Sleep(Math.Max(1, delay));
             }
 
             g?.Dispose();
