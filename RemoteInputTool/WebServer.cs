@@ -24,8 +24,6 @@ namespace RemoteInputTool
         private readonly object _lock = new object();
         private bool _isRunning = false;
         
-        public event Action<string> OnClientMessage;
-
         public WebServer(ScreenCapture capture)
         {
             _capture = capture;
@@ -59,7 +57,14 @@ namespace RemoteInputTool
 
         public void BroadcastInitData()
         {
-            var initData = new { type = "init", apps = MainWindow.AppConfig.Apps, areas = MainWindow.AppConfig.CaptureAreas };
+            var initData = new { 
+                type = "init", 
+                apps = MainWindow.AppConfig.Apps, 
+                areas = MainWindow.AppConfig.CaptureAreas,
+                grid2 = MainWindow.AppConfig.Grid2,
+                grid4 = MainWindow.AppConfig.Grid4,
+                grid9 = MainWindow.AppConfig.Grid9
+            };
             var data = Encoding.UTF8.GetBytes(_json.Serialize(initData));
             var frame = CreateWebSocketFrame(data);
             
@@ -234,6 +239,21 @@ namespace RemoteInputTool
                 else if (action == "launch_app") {
                     var app = MainWindow.AppConfig.Apps.Find(a => a.Id == Convert.ToInt32(cmd["id"]));
                     if (app != null && File.Exists(app.Path)) System.Diagnostics.Process.Start(app.Path);
+                }
+                else if (action == "grid_action") {
+                    int split = Convert.ToInt32(cmd["split"]);
+                    int index = Convert.ToInt32(cmd["index"]);
+                    GridSettings grid = null;
+                    if (split == 2) grid = MainWindow.AppConfig.Grid2;
+                    else if (split == 4) grid = MainWindow.AppConfig.Grid4;
+                    else if (split == 9) grid = MainWindow.AppConfig.Grid9;
+
+                    if (grid != null && index >= 0 && index < grid.Cells.Count) {
+                        var cell = grid.Cells[index];
+                        if (cell.ActionType == "Mouse") InputEmulator.Click(cell.Detail);
+                        else if (cell.ActionType == "Key") InputEmulator.SendKey(cell.Detail);
+                        else if (cell.ActionType == "App" && File.Exists(cell.Detail)) System.Diagnostics.Process.Start(cell.Detail);
+                    }
                 }
             } catch { }
         }
