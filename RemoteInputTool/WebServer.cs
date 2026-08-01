@@ -38,6 +38,7 @@ namespace RemoteInputTool
 
         public void Start()
         {
+            _capture.Start(); // サーバー起動時にキャプチャースレッドも起動（クライアント0ならWaitで待機する）
             _listener = new TcpListener(IPAddress.Any, 5360);
             _listener.Start();
             _isRunning = true;
@@ -150,6 +151,9 @@ namespace RemoteInputTool
 
             lock (_lock) { _clients.Add(client); }
             BroadcastInitData();
+            
+            // クライアント接続を通知（キャプチャ開始）
+            _capture.AddClient();
 
             bool isConnected = true;
             Action<string, double, double> onImageCaptured = async (base64, curX, curY) => {
@@ -162,7 +166,6 @@ namespace RemoteInputTool
             };
 
             _capture.OnFrameReady += onImageCaptured;
-            _capture.Start();
 
             try {
                 byte[] buffer = new byte[8192];
@@ -181,7 +184,10 @@ namespace RemoteInputTool
             }
             catch { }
             finally {
-                isConnected = false; _capture.OnFrameReady -= onImageCaptured;
+                isConnected = false; 
+                _capture.OnFrameReady -= onImageCaptured;
+                // クライアント切断を通知
+                _capture.RemoveClient();
                 lock (_lock) { _clients.Remove(client); }
             }
         }
