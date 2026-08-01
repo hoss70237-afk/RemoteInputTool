@@ -4,15 +4,32 @@
         Title="スマホ用リモート入力ツール" Height="450" Width="600" Closing="Window_Closing" StateChanged="Window_StateChanged">
     <TabControl>
         <TabItem Header="メイン">
-            <StackPanel Margin="10">
-                <TextBlock Text="アクセスURL:" FontWeight="Bold"/>
-                <TextBox x:Name="UrlTextBox" IsReadOnly="True" Margin="0,0,0,10" FontSize="16"/>
-                <TextBlock Text="キャプチャ領域名:" />
-                <TextBox x:Name="AreaNameTextBox" Margin="0,0,0,10"/>
-                <Button Content="ドラッグ選択" Click="DragSelect_Click" Padding="5" Margin="0,0,0,5"/>
-                <Button Content="全画面選択" Click="FullScreen_Click" Padding="5" Margin="0,0,0,10"/>
-                <TextBlock x:Name="StatusTextBlock" Foreground="Green" FontWeight="Bold"/>
-            </StackPanel>
+            <Grid Margin="10">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                
+                <TextBlock Text="アクセスURL:" FontWeight="Bold" Grid.Row="0"/>
+                <TextBox x:Name="UrlTextBox" IsReadOnly="True" Margin="0,0,0,10" FontSize="16" Grid.Row="1"/>
+                
+                <TextBlock Text="キャプチャ領域設定:" FontWeight="Bold" Grid.Row="2"/>
+                <StackPanel Orientation="Horizontal" Grid.Row="3" Margin="0,5">
+                    <TextBlock Text="領域名:" VerticalAlignment="Center"/>
+                    <TextBox x:Name="AreaNameTextBox" Width="150" Margin="5,0"/>
+                    <Button Content="新規ドラッグ追加" Click="AddArea_Click" Padding="5,0"/>
+                    <Button Content="選択を上書き" Click="OverwriteArea_Click" Margin="5,0" Padding="5,0"/>
+                    <Button Content="削除" Click="DeleteArea_Click" Padding="5,0"/>
+                </StackPanel>
+                
+                <ListBox x:Name="AreaListBox" DisplayMemberPath="Name" Grid.Row="4" Margin="0,0,0,10" SelectionChanged="AreaListBox_SelectionChanged"/>
+                
+                <TextBlock x:Name="StatusTextBlock" Foreground="Green" FontWeight="Bold" Grid.Row="5"/>
+            </Grid>
         </TabItem>
         <TabItem Header="アプリ設定">
             <ScrollViewer>
