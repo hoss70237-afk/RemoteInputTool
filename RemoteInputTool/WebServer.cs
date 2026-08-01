@@ -2,7 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
-using System.Net.WebSockets;
+using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,12 +15,13 @@ namespace RemoteInputTool
 {
     public class WebServer
     {
-        private HttpListener _listener;
+        private TcpListener _listener;
         private ScreenCapture _capture;
         private HashSet<string> _allowedIps;
         private string ipsFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_ips.json");
         private JavaScriptSerializer _json = new JavaScriptSerializer();
         private readonly object _ipsLock = new object();
+        private bool _isRunning = false;
 
         public WebServer(ScreenCapture capture)
         {
@@ -37,145 +39,249 @@ namespace RemoteInputTool
 
         public void Start()
         {
-            _listener = new HttpListener();
-            _listener.Prefixes.Add("http://+:5360/");
+            // HttpListenerではなくTcpListenerを使用し、OSの制限と管理者権限の壁を突破する
+            _listener = new TcpListener(IPAddress.Any, 5360);
             _listener.Start();
+            _isRunning = true;
             Task.Run(ListenLoop);
         }
 
-        public void Stop() => _listener?.Stop();
+        public void Stop() 
+        {
+            _isRunning = false;
+            _listener?.Stop();
+        }
 
         private async Task ListenLoop()
         {
-            while (_listener.IsListening)
+            while (_isRunning)
             {
                 try
                 {
-                    var context = await _listener.GetContextAsync();
-                    _ = Task.Run(() => ProcessRequestAsync(context));
+                    var client = await _listener.AcceptTcpClientAsync();
+                    _ = Task.Run(() => ProcessClientAsync(client));
                 }
                 catch { }
             }
         }
 
-        private async Task ProcessRequestAsync(HttpListenerContext context)
+        private async Task ProcessClientAsync(TcpClient client)
         {
-            try
+            using (client)
+            using (var stream = client.GetStream())
             {
-                string ip = context.Request.RemoteEndPoint.Address.ToString();
-
-                bool isAllowed;
-                lock (_ipsLock) { isAllowed = _allowedIps.Contains(ip) || ip == "127.0.0.1"; }
-
-                if (!isAllowed)
+                try
                 {
-                    bool userGranted = false;
-                    Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        var res = MessageBox.Show($"IP: {ip} からの接続要求があります。許可しますか？", "セキュリティ確認", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No, MessageBoxOptions.DefaultDesktopOnly);
-                        userGranted = (res == MessageBoxResult.Yes);
-                    });
+                    string ip = ((IPEndPoint)client.Client.RemoteEndPoint).Address.ToString();
 
-                    if (userGranted)
+                    bool isAllowed;
+                    lock (_ipsLock) { isAllowed = _allowedIps.Contains(ip) || ip == "127.0.0.1"; }
+
+                    if (!isAllowed)
                     {
-                        lock (_ipsLock)
+                        bool userGranted = false;
+                        Application.Current.Dispatcher.Invoke(() =>
                         {
-                            _allowedIps.Add(ip);
-                            File.WriteAllText(ipsFilePath, _json.Serialize(_allowedIps.ToList()));
+                            var res = MessageBox.Show($"IP: {ip} からの接続要求があります。許可しますか？", "セキュリティ確認", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No, MessageBoxOptions.DefaultDesktopOnly);
+                            userGranted = (res == MessageBoxResult.Yes);
+                        });
+
+                        if (userGranted)
+                        {
+                            lock (_ipsLock)
+                            {
+                                _allowedIps.Add(ip);
+                                File.WriteAllText(ipsFilePath, _json.Serialize(_allowedIps.ToList()));
+                            }
                         }
+                        else
+                        {
+                            string forbidden = "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n";
+                            byte[] fbBytes = Encoding.UTF8.GetBytes(forbidden);
+                            await stream.WriteAsync(fbBytes, 0, fbBytes.Length);
+                            return;
+                        }
+                    }
+
+                    // リクエストの読み取り
+                    byte[] buffer = new byte[8192];
+                    int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                    if (bytesRead == 0) return;
+                    string requestString = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+
+                    // WebSocketの要求か、通常のHTML表示の要求かを振り分ける
+                    if (requestString.Contains("Upgrade: websocket"))
+                    {
+                        await ProcessWebSocket(stream, requestString);
+                    }
+                    else if (requestString.StartsWith("GET / HTTP"))
+                    {
+                        ServeHtml(stream);
                     }
                     else
                     {
-                        context.Response.StatusCode = 403;
-                        context.Response.Close();
-                        return;
+                        string notFound = "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n";
+                        byte[] nfBytes = Encoding.UTF8.GetBytes(notFound);
+                        await stream.WriteAsync(nfBytes, 0, nfBytes.Length);
                     }
                 }
-
-                if (context.Request.IsWebSocketRequest)
-                    await ProcessWebSocket(context);
-                else
-                    ServeHtml(context);
-            }
-            catch
-            {
-                try { context.Response.Close(); } catch { }
+                catch { }
             }
         }
 
-        private void ServeHtml(HttpListenerContext context)
+        private void ServeHtml(NetworkStream stream)
         {
-            try 
+            try
             {
-                if (context.Request.Url.AbsolutePath != "/")
-                {
-                    context.Response.StatusCode = 404;
-                    context.Response.Close();
-                    return;
-                }
-
                 string htmlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebClient.html");
-                string html = File.ReadAllText(htmlPath);
+                string html = File.Exists(htmlPath) ? File.ReadAllText(htmlPath) : "<html><body>WebClient.html Not Found</body></html>";
+                byte[] htmlBytes = Encoding.UTF8.GetBytes(html);
                 
-                byte[] buf = Encoding.UTF8.GetBytes(html);
-                context.Response.ContentType = "text/html";
-                context.Response.ContentLength64 = buf.Length;
-                context.Response.OutputStream.Write(buf, 0, buf.Length);
-                context.Response.Close();
+                string header = $"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: {htmlBytes.Length}\r\nConnection: close\r\n\r\n";
+                byte[] headerBytes = Encoding.UTF8.GetBytes(header);
+                
+                stream.Write(headerBytes, 0, headerBytes.Length);
+                stream.Write(htmlBytes, 0, htmlBytes.Length);
             }
-            catch
-            {
-                context.Response.StatusCode = 500;
-                context.Response.Close();
-            }
+            catch { }
         }
 
-        private async Task ProcessWebSocket(HttpListenerContext context)
+        // C#でWebSocketのプロトコルを手動で処理する（Windows7対応）
+        private async Task ProcessWebSocket(NetworkStream stream, string requestString)
         {
-            var wsContext = await context.AcceptWebSocketAsync(null);
-            var ws = wsContext.WebSocket;
+            string key = "";
+            foreach (var line in requestString.Split(new[] { "\r\n" }, StringSplitOptions.None))
+            {
+                if (line.StartsWith("Sec-WebSocket-Key: ", StringComparison.OrdinalIgnoreCase))
+                {
+                    key = line.Substring("Sec-WebSocket-Key: ".Length).Trim();
+                    break;
+                }
+            }
+
+            if (string.IsNullOrEmpty(key)) return;
+
+            // ハンドシェイクの確立
+            string acceptKey = Convert.ToBase64String(SHA1.Create().ComputeHash(Encoding.UTF8.GetBytes(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")));
+            string handshake = "HTTP/1.1 101 Switching Protocols\r\n" +
+                               "Upgrade: websocket\r\n" +
+                               "Connection: Upgrade\r\n" +
+                               "Sec-WebSocket-Accept: " + acceptKey + "\r\n\r\n";
+            byte[] handshakeBytes = Encoding.UTF8.GetBytes(handshake);
+            await stream.WriteAsync(handshakeBytes, 0, handshakeBytes.Length);
+
+            bool isConnected = true;
 
             Action<string> onImageCaptured = async (base64) =>
             {
-                try 
+                try
                 {
-                    if (ws.State == WebSocketState.Open)
-                    {
-                        var payload = _json.Serialize(new { type = "image", data = base64, cursor = new { x = 0.5, y = 0.5 } });
-                        var bytes = Encoding.UTF8.GetBytes(payload);
-                        await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
-                    }
-                } 
-                catch { }
+                    if (!isConnected) return;
+                    var payload = _json.Serialize(new { type = "image", data = base64, cursor = new { x = 0.5, y = 0.5 } });
+                    byte[] data = Encoding.UTF8.GetBytes(payload);
+                    byte[] frame = CreateWebSocketFrame(data);
+                    await stream.WriteAsync(frame, 0, frame.Length);
+                }
+                catch { isConnected = false; }
             };
 
             _capture.OnFrameReady += onImageCaptured;
             _capture.Start();
 
-            byte[] buffer = new byte[1024 * 4];
             try
             {
-                while (ws.State == WebSocketState.Open)
+                byte[] buffer = new byte[8192];
+                while (isConnected)
                 {
-                    var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-                    if (result.MessageType == WebSocketMessageType.Text)
+                    int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                    if (bytesRead == 0) break;
+
+                    var cmds = DecodeWebSocketFrames(buffer, bytesRead);
+                    foreach (var cmd in cmds)
                     {
-                        string msg = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                        var cmd = _json.Deserialize<Dictionary<string, object>>(msg);
-                        HandleCommand(cmd);
-                    }
-                    else if (result.MessageType == WebSocketMessageType.Close)
-                    {
-                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
-                        break;
+                        if (cmd != null) HandleCommand(cmd);
                     }
                 }
             }
             catch { }
             finally
             {
+                isConnected = false;
                 _capture.OnFrameReady -= onImageCaptured;
             }
+        }
+
+        private byte[] CreateWebSocketFrame(byte[] payload)
+        {
+            int headerLength = payload.Length <= 125 ? 2 : (payload.Length <= 65535 ? 4 : 10);
+            byte[] frame = new byte[headerLength + payload.Length];
+            frame[0] = 0x81; // FIN + Text
+
+            if (payload.Length <= 125)
+            {
+                frame[1] = (byte)payload.Length;
+            }
+            else if (payload.Length <= 65535)
+            {
+                frame[1] = 126;
+                frame[2] = (byte)((payload.Length >> 8) & 255);
+                frame[3] = (byte)(payload.Length & 255);
+            }
+            else
+            {
+                frame[1] = 127;
+                var lenBytes = BitConverter.GetBytes((ulong)payload.Length);
+                if (BitConverter.IsLittleEndian) Array.Reverse(lenBytes);
+                Array.Copy(lenBytes, 0, frame, 2, 8);
+            }
+
+            Array.Copy(payload, 0, frame, headerLength, payload.Length);
+            return frame;
+        }
+
+        private List<Dictionary<string, object>> DecodeWebSocketFrames(byte[] buffer, int length)
+        {
+            var results = new List<Dictionary<string, object>>();
+            int pos = 0;
+            while (pos < length - 2)
+            {
+                bool fin = (buffer[pos] & 0b10000000) != 0;
+                int opcode = buffer[pos] & 0b00001111;
+                if (opcode == 8) // 切断要求
+                    break;
+
+                bool mask = (buffer[pos + 1] & 0b10000000) != 0;
+                int payloadLen = buffer[pos + 1] & 0b01111111;
+                int offset = pos + 2;
+
+                if (payloadLen == 126) { offset += 2; }
+                else if (payloadLen == 127) { offset += 8; }
+
+                if (offset > length || !mask) break;
+
+                byte[] maskKey = new byte[4];
+                Array.Copy(buffer, offset, maskKey, 0, 4);
+                offset += 4;
+
+                if (offset + payloadLen > length) break;
+
+                byte[] decoded = new byte[payloadLen];
+                for (int i = 0; i < payloadLen; i++)
+                {
+                    decoded[i] = (byte)(buffer[offset + i] ^ maskKey[i % 4]);
+                }
+
+                string json = Encoding.UTF8.GetString(decoded);
+                try
+                {
+                    var dict = _json.Deserialize<Dictionary<string, object>>(json);
+                    if (dict != null) results.Add(dict);
+                }
+                catch { }
+
+                pos = offset + payloadLen;
+            }
+            return results;
         }
 
         private void HandleCommand(Dictionary<string, object> cmd)
