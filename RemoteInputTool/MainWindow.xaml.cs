@@ -17,7 +17,9 @@ namespace RemoteInputTool
     {
         private System.Windows.Forms.NotifyIcon _notifyIcon;
         public static Config AppConfig { get; set; } = new Config();
-        public static Rect CurrentCaptureArea = new Rect(0, 0, SystemParameters.PrimaryScreenWidth, SystemParameters.PrimaryScreenHeight);
+        public static Rect CurrentCaptureArea;
+        public static double DpiX = 1.0;
+        public static double DpiY = 1.0;
         
         private WebServer _webServer;
         private ScreenCapture _screenCapture;
@@ -27,6 +29,15 @@ namespace RemoteInputTool
         {
             InitializeComponent();
             
+            // DPIスケーリング係数の取得
+            using (var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero))
+            {
+                DpiX = g.DpiX / 96.0;
+                DpiY = g.DpiY / 96.0;
+            }
+            // 物理ピクセル基準で初期化
+            CurrentCaptureArea = new Rect(0, 0, SystemParameters.PrimaryScreenWidth * DpiX, SystemParameters.PrimaryScreenHeight * DpiY);
+
             // 最小化・タスクトレイ起動
             WindowState = WindowState.Minimized;
             Hide();
@@ -144,7 +155,8 @@ namespace RemoteInputTool
                 var w = rectUI.Width; var h = rectUI.Height;
                 var x = Canvas.GetLeft(rectUI); var y = Canvas.GetTop(rectUI);
                 overlay.Close();
-                if(w > 10 && h > 10) onSelected(new Rect(x, y, w, h));
+                // 論理ピクセルを物理ピクセルに変換して保存
+                if(w > 10 && h > 10) onSelected(new Rect(x * DpiX, y * DpiY, w * DpiX, h * DpiY));
             };
             overlay.ShowDialog();
         }
