@@ -10,11 +10,11 @@
         
         #screenArea { position: relative; flex: none; width: 100vw; height: 56.25vw; max-height: 100vh; background: #000; display: flex; justify-content: center; align-items: center; touch-action: none; overflow: hidden; }
         
-        /* ズーム・パン対象のコンテナ */
-        #imgContainer { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transition: transform 0.1s ease-out; }
+        /* ズーム・パン対象のコンテナ（transitionを外して遅延を無くす） */
+        #imgContainer { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transform-origin: center center; }
         #screenImg { max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none; }
         
-        /* グリッドオーバーレイ（画面全体の領域に固定して分割表示） */
+        /* グリッドオーバーレイ */
         #gridOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
         .grid-cell { border: 1px solid rgba(0, 255, 0, 0.5); display: flex; justify-content: center; align-items: center; color: rgba(0, 255, 0, 0.8); font-weight: bold; font-size: 2vw; text-shadow: 1px 1px 2px #000; }
         
@@ -266,22 +266,64 @@
             }
         }
 
-        // 画像の実際の描画領域(transform適用後)から相対座標を計算
+        // 画像の実際の描画領域と余白を計算して完璧な相対座標を返す
         function getRelativeCursorPos(clientX, clientY) {
-            const rect = screenImg.getBoundingClientRect();
-            let x = (clientX - rect.left) / rect.width;
-            let y = (clientY - rect.top) / rect.height;
+            const rect = screenImg.getBoundingClientRect(); // 変形済みの矩形
+            const nw = screenImg.naturalWidth;
+            const nh = screenImg.naturalHeight;
+            if (!nw || !nh) return {x: 0.5, y: 0.5};
+
+            const elementRatio = rect.width / rect.height;
+            const imageRatio = nw / nh;
+            
+            let actualWidth, actualHeight, offsetX = 0, offsetY = 0;
+            if (imageRatio > elementRatio) {
+                actualWidth = rect.width;
+                actualHeight = rect.width / imageRatio;
+                offsetY = (rect.height - actualHeight) / 2;
+            } else {
+                actualHeight = rect.height;
+                actualWidth = rect.height * imageRatio;
+                offsetX = (rect.width - actualWidth) / 2;
+            }
+            
+            const imgLeft = rect.left + offsetX;
+            const imgTop = rect.top + offsetY;
+            
+            let x = (clientX - imgLeft) / actualWidth;
+            let y = (clientY - imgTop) / actualHeight;
+            
             return { x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) };
         }
 
+        // エフェクトも余白と変形を加味して正確なピクセル座標へ配置する
         function showPointerEffect(ratioX, ratioY) {
             const rect = screenImg.getBoundingClientRect();
-            const px = rect.left + rect.width * ratioX;
-            const py = rect.top + rect.height * ratioY;
+            const nw = screenImg.naturalWidth;
+            const nh = screenImg.naturalHeight;
+            if (!nw || !nh) return;
+
+            const elementRatio = rect.width / rect.height;
+            const imageRatio = nw / nh;
+            
+            let actualWidth, actualHeight, offsetX = 0, offsetY = 0;
+            if (imageRatio > elementRatio) {
+                actualWidth = rect.width;
+                actualHeight = rect.width / imageRatio;
+                offsetY = (rect.height - actualHeight) / 2;
+            } else {
+                actualHeight = rect.height;
+                actualWidth = rect.height * imageRatio;
+                offsetX = (rect.width - actualWidth) / 2;
+            }
+
+            const px = rect.left + offsetX + actualWidth * ratioX;
+            const py = rect.top + offsetY + actualHeight * ratioY;
+            
             pointerEffect.style.left = px + "px";
             pointerEffect.style.top = py + "px";
             pointerEffect.classList.remove("pointer-anim");
-            void pointerEffect.offsetWidth; // 強制リフロー
+            void pointerEffect.offsetWidth; 
             pointerEffect.classList.add("pointer-anim");
         }
 
@@ -295,7 +337,10 @@
         }
 
         screenArea.addEventListener('touchstart', (e) => {
-            if (e.target !== screenArea && e.target !== screenImg && e.target !== gridOverlay && !e.target.classList.contains('grid-cell')) return;
+            // imgContainer もターゲットとして許可する
+            const allowedTargets = [screenArea, imgContainer, screenImg, gridOverlay];
+            if (!allowedTargets.includes(e.target) && !e.target.classList.contains('grid-cell')) return;
+            
             e.preventDefault();
             hasMoved = false;
             const touch = e.touches[0];
@@ -316,14 +361,16 @@
         });
 
         screenArea.addEventListener('touchmove', (e) => {
-            if (e.target !== screenArea && e.target !== screenImg && e.target !== gridOverlay && !e.target.classList.contains('grid-cell')) return;
+            const allowedTargets = [screenArea, imgContainer, screenImg, gridOverlay];
+            if (!allowedTargets.includes(e.target) && !e.target.classList.contains('grid-cell')) return;
+            
             e.preventDefault();
             hasMoved = true;
             const touch = e.touches[0];
 
             if (isZoomMode) {
                 let dy = touchStartY - touch.clientY; // 上スワイプ(dy>0)で縮小
-                scale = Math.max(1.0, Math.min(5.0, initialScale - dy * 0.01));
+                scale = Math.max(1.0, Math.min(10.0, initialScale - dy * 0.01));
                 updateTransform();
             } else if (isPanMode) {
                 translateX = initialTx + (touch.clientX - touchStartX);
