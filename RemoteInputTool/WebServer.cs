@@ -38,7 +38,7 @@ namespace RemoteInputTool
 
         public void Start()
         {
-            _capture.Start(); // サーバー起動時にキャプチャースレッドも起動（クライアント0ならWaitで待機する）
+            _capture.Start();
             _listener = new TcpListener(IPAddress.Any, 5360);
             _listener.Start();
             _isRunning = true;
@@ -152,17 +152,23 @@ namespace RemoteInputTool
             lock (_lock) { _clients.Add(client); }
             BroadcastInitData();
             
-            // クライアント接続を通知（キャプチャ開始）
             _capture.AddClient();
 
             bool isConnected = true;
+            bool isSending = false; // ★遅延防止：現在送信中かどうかのフラグ
+            
             Action<string, double, double> onImageCaptured = async (base64, curX, curY) => {
+                // 送信中であれば、処理待ちタスクが溜まって遅延するのを防ぐためにスキップ（フレームドロップ）
+                if (!isConnected || isSending) return;
+                
+                isSending = true;
                 try {
-                    if (!isConnected) return;
                     var payload = _json.Serialize(new { type = "image", data = base64, cursor = new { x = curX, y = curY } });
                     byte[] frame = CreateWebSocketFrame(Encoding.UTF8.GetBytes(payload));
                     await stream.WriteAsync(frame, 0, frame.Length);
-                } catch { isConnected = false; }
+                } 
+                catch { isConnected = false; }
+                finally { isSending = false; }
             };
 
             _capture.OnFrameReady += onImageCaptured;
@@ -186,7 +192,6 @@ namespace RemoteInputTool
             finally {
                 isConnected = false; 
                 _capture.OnFrameReady -= onImageCaptured;
-                // クライアント切断を通知
                 _capture.RemoveClient();
                 lock (_lock) { _clients.Remove(client); }
             }
