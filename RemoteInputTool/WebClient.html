@@ -48,14 +48,14 @@
     <div id="uiContainer">
         <div id="controls">
             <button id="btnConnect" class="btn-primary" style="flex:1;">接続</button>
-            <select id="areaSelect"></select>
-            <button onclick="sendAction({action:'click', button:'left'})" style="flex:1;">左クリック</button>
+            <select id="areaSelect" style="flex:2;"></select>
         </div>
 
         <div id="actions">
             <div class="btn-group">
-                <button onclick="sendAction({action:'click', button:'right'})">右クリック</button>
-                <button id="btnDrag">ドラッグ: OFF</button>
+                <button onclick="sendAction({action:'click', button:'left'})" style="flex: 3;">左クリック</button>
+                <button id="btnDrag" style="flex: 2;">ドラッグ: OFF</button>
+                <button onclick="sendAction({action:'click', button:'right'})" style="flex: 3;">右クリック</button>
             </div>
             
             <div class="btn-group" style="align-items: center;">
