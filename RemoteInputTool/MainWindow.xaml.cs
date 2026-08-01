@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -29,16 +30,13 @@ namespace RemoteInputTool
         {
             InitializeComponent();
             
-            // DPIスケーリング係数の取得
             using (var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero))
             {
                 DpiX = g.DpiX / 96.0;
                 DpiY = g.DpiY / 96.0;
             }
-            // 物理ピクセル基準で初期化
             CurrentCaptureArea = new Rect(0, 0, SystemParameters.PrimaryScreenWidth * DpiX, SystemParameters.PrimaryScreenHeight * DpiY);
 
-            // 最小化・タスクトレイ起動
             WindowState = WindowState.Minimized;
             Hide();
             ShowInTaskbar = false;
@@ -47,6 +45,7 @@ namespace RemoteInputTool
             SetupNotifyIcon();
             InitializeAppList();
             RefreshAreaList();
+            GridSplitCombo.SelectedIndex = 0; // 初期選択
 
             string localIp = GetLocalIPAddress();
             UrlTextBox.Text = $"http://{localIp}:5360/";
@@ -56,7 +55,6 @@ namespace RemoteInputTool
             _webServer.Start();
             StatusTextBlock.Text = "サーバー稼働中...";
 
-            // 1.5秒で消える起動メッセージ
             Task.Run(async () => {
                 await Task.Delay(500);
                 _notifyIcon.ShowBalloonTip(1500, "リモート入力ツール", "サーバーが最小化状態で起動しました", System.Windows.Forms.ToolTipIcon.Info);
@@ -81,11 +79,7 @@ namespace RemoteInputTool
 
         private void Window_StateChanged(object sender, EventArgs e)
         {
-            if (WindowState == WindowState.Minimized)
-            {
-                Hide();
-                ShowInTaskbar = false;
-            }
+            if (WindowState == WindowState.Minimized) { Hide(); ShowInTaskbar = false; }
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
@@ -105,8 +99,10 @@ namespace RemoteInputTool
             }
             if (AppConfig.Apps == null || !AppConfig.Apps.Any())
                 AppConfig.Apps = Enumerable.Range(1, 10).Select(i => new AppItem { Id = i, Name = $"App{i}", Path = "" }).ToList();
-            if (AppConfig.CaptureAreas == null)
-                AppConfig.CaptureAreas = new List<CaptureAreaItem>();
+            if (AppConfig.CaptureAreas == null) AppConfig.CaptureAreas = new List<CaptureAreaItem>();
+            if (AppConfig.Grid2 == null) AppConfig.Grid2 = new GridSettings(2);
+            if (AppConfig.Grid4 == null) AppConfig.Grid4 = new GridSettings(4);
+            if (AppConfig.Grid9 == null) AppConfig.Grid9 = new GridSettings(9);
         }
 
         private void SaveConfig()
@@ -116,6 +112,17 @@ namespace RemoteInputTool
 
         private void InitializeAppList() => AppItemsControl.ItemsSource = AppConfig.Apps;
         private void SaveApp_Click(object sender, RoutedEventArgs e) { SaveConfig(); _webServer.BroadcastInitData(); }
+        
+        private void SaveGrid_Click(object sender, RoutedEventArgs e) { SaveConfig(); _webServer.BroadcastInitData(); MessageBox.Show("グリッド設定を保存しました。"); }
+
+        private void GridSplitCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (GridCellsControl == null) return;
+            int idx = GridSplitCombo.SelectedIndex;
+            if (idx == 0) GridCellsControl.ItemsSource = AppConfig.Grid2.Cells;
+            else if (idx == 1) GridCellsControl.ItemsSource = AppConfig.Grid4.Cells;
+            else if (idx == 2) GridCellsControl.ItemsSource = AppConfig.Grid9.Cells;
+        }
 
         private void RefreshAreaList()
         {
@@ -155,7 +162,6 @@ namespace RemoteInputTool
                 var w = rectUI.Width; var h = rectUI.Height;
                 var x = Canvas.GetLeft(rectUI); var y = Canvas.GetTop(rectUI);
                 overlay.Close();
-                // 論理ピクセルを物理ピクセルに変換して保存
                 if(w > 10 && h > 10) onSelected(new Rect(x * DpiX, y * DpiY, w * DpiX, h * DpiY));
             };
             overlay.ShowDialog();
@@ -223,7 +229,28 @@ namespace RemoteInputTool
         public int Fps { get; set; } = 30;
         public int Quality { get; set; } = 50;
         public List<AppItem> Apps { get; set; }
+        public GridSettings Grid2 { get; set; } = new GridSettings(2);
+        public GridSettings Grid4 { get; set; } = new GridSettings(4);
+        public GridSettings Grid9 { get; set; } = new GridSettings(9);
     }
     public class CaptureAreaItem { public string Name { get; set; } public Rect Area { get; set; } }
     public class AppItem { public int Id { get; set; } public string Name { get; set; } public string Path { get; set; } }
+    
+    public class GridSettings
+    {
+        public int Split { get; set; }
+        public ObservableCollection<GridCell> Cells { get; set; }
+        public GridSettings() { }
+        public GridSettings(int split) {
+            Split = split;
+            Cells = new ObservableCollection<GridCell>();
+            for (int i = 0; i < split; i++) Cells.Add(new GridCell { Label = $"エリア {i+1}" });
+        }
+    }
+    public class GridCell
+    {
+        public string Label { get; set; }
+        public string ActionType { get; set; } = "Mouse";
+        public string Detail { get; set; } = "Left";
+    }
 }
