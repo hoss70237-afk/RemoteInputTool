@@ -188,9 +188,7 @@ namespace RemoteInputTool
             }
         }
 
-        /* ... HandleCommand メソッドはそのまま ... */
-    }
-}
+
 
         private void HandleCommand(Dictionary<string, object> cmd)
         {
