@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -9,7 +10,11 @@ namespace RemoteInputTool
 {
     public class ScreenCapture
     {
-        public event Action<string> OnFrameReady;
+        [DllImport("user32.dll")]
+        public static extern bool GetCursorPos(out POINT lpPoint);
+        public struct POINT { public int X; public int Y; }
+
+        public event Action<string, double, double> OnFrameReady;
         private bool _isRunning = false;
 
         public void Start()
@@ -23,20 +28,21 @@ namespace RemoteInputTool
 
         private void CaptureLoop()
         {
-            // Windows 7向けGDIフォールバック (Win8以降はSharpDXによるDXGI Desktop Duplication実装を追加推奨)
-            var rect = MainWindow.AppConfig.CaptureArea;
-            int width = (int)rect.Width, height = (int)rect.Height;
-            int x = (int)rect.X, y = (int)rect.Y;
-
             while (_isRunning)
             {
+                var rect = MainWindow.CurrentCaptureArea;
+                int width = (int)Math.Max(1, rect.Width), height = (int)Math.Max(1, rect.Height);
+                int x = (int)rect.X, y = (int)rect.Y;
+
                 using (var bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb))
                 {
                     using (var g = Graphics.FromImage(bmp))
-                    {
                         g.CopyFromScreen(x, y, 0, 0, new Size(width, height), CopyPixelOperation.SourceCopy);
-                    }
                     
+                    GetCursorPos(out var pt);
+                    double curX = (pt.X - x) / (double)width;
+                    double curY = (pt.Y - y) / (double)height;
+
                     using (var ms = new MemoryStream())
                     {
                         var encoderParams = new EncoderParameters(1);
@@ -44,8 +50,7 @@ namespace RemoteInputTool
                         var jpegCodec = GetEncoderInfo("image/jpeg");
                         bmp.Save(ms, jpegCodec, encoderParams);
                         
-                        string base64 = Convert.ToBase64String(ms.ToArray());
-                        OnFrameReady?.Invoke(base64);
+                        OnFrameReady?.Invoke(Convert.ToBase64String(ms.ToArray()), curX, curY);
                     }
                 }
                 Thread.Sleep(1000 / MainWindow.AppConfig.Fps);
