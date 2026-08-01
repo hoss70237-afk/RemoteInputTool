@@ -9,7 +9,8 @@
 
   <ItemGroup>
     <Reference Include="System.Web.Extensions" />
-    <Reference Include="System.Drawing" /> <!-- この行を追加 -->
+    <Reference Include="System.Web" /> <!-- ！！ここを追加！！ -->
+    <Reference Include="System.Drawing" />
   </ItemGroup>
 
   <ItemGroup>
