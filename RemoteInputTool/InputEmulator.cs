@@ -26,26 +26,29 @@ namespace RemoteInputTool
         const uint MOUSEEVENTF_RIGHTUP = 0x0010;
         const uint MOUSEEVENTF_WHEEL = 0x0800;
 
-        public static void MoveMouse(double ratioX, double ratioY)
+        public static void MoveMouse(double ratioX, double ratioY, Rect area)
         {
-            int screenW = (int)SystemParameters.VirtualScreenWidth;
-            int screenH = (int)SystemParameters.VirtualScreenHeight;
-            int dx = (int)(ratioX * 65535);
-            int dy = (int)(ratioY * 65535);
+            double screenW = SystemParameters.VirtualScreenWidth;
+            double screenH = SystemParameters.VirtualScreenHeight;
+            
+            // 現在の領域内での絶対ピクセル座標を算出
+            double targetPx = area.X + (area.Width * ratioX);
+            double targetPy = area.Y + (area.Height * ratioY);
+            
+            // システム全体(65535)に対する比率へ変換
+            int dx = (int)((targetPx / screenW) * 65535);
+            int dy = (int)((targetPy / screenH) * 65535);
+            
             SendMouseInput(dx, dy, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK);
         }
 
-        public static void MoveMouseRel(int dx, int dy)
-        {
-            SendMouseInput(dx, dy, MOUSEEVENTF_MOVE);
-        }
-
+        public static void MoveMouseRel(int dx, int dy) => SendMouseInput(dx, dy, MOUSEEVENTF_MOVE);
+        
         public static void Click(string button)
         {
             uint down = button == "left" ? MOUSEEVENTF_LEFTDOWN : MOUSEEVENTF_RIGHTDOWN;
             uint up = button == "left" ? MOUSEEVENTF_LEFTUP : MOUSEEVENTF_RIGHTUP;
-            SendMouseInput(0, 0, down);
-            SendMouseInput(0, 0, up);
+            SendMouseInput(0, 0, down); SendMouseInput(0, 0, up);
         }
 
         public static void Drag(string state)
@@ -65,9 +68,7 @@ namespace RemoteInputTool
         private static void SendMouseInput(int dx, int dy, uint flags)
         {
             var input = new INPUT { type = INPUT_MOUSE };
-            input.u.mi.dx = dx;
-            input.u.mi.dy = dy;
-            input.u.mi.dwFlags = flags;
+            input.u.mi.dx = dx; input.u.mi.dy = dy; input.u.mi.dwFlags = flags;
             SendInput(1, new[] { input }, Marshal.SizeOf(typeof(INPUT)));
         }
     }
