@@ -8,138 +8,127 @@
         :root { --bg: #1e1e1e; --text: #fff; --accent: #007acc; --panel: #2d2d2d; }
         body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; overflow: hidden; user-select: none; -webkit-user-select: none; }
         
-        /* 画像エリア */
-        #screenArea { position: relative; flex: none; height: 45vh; background: #000; border-bottom: 2px solid var(--panel); display: flex; justify-content: center; align-items: center; touch-action: none; }
-        #screenImg { max-width: 100%; max-height: 100%; object-fit: contain; }
-        #reticle { position: absolute; width: 20px; height: 20px; border: 2px solid red; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); display: none; }
-        #reticle::after { content: ''; position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; background: red; border-radius: 50%; transform: translate(-50%, -50%); }
+        /* 画面上部に16:9比率で配置 */
+        #screenArea { position: relative; flex: none; width: 100vw; height: 56.25vw; max-height: 100vh; background: #000; display: flex; justify-content: center; align-items: center; touch-action: none; overflow: hidden; }
+        #screenImg { max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none; }
         
-        /* グリッドオーバーレイ */
-        #gridOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); pointer-events: none; }
-        .grid-cell { border: 1px dashed transparent; pointer-events: auto; display: flex; justify-content: center; align-items: center; font-size: 10px; color: rgba(255,255,255,0.5); }
-        body.setting-mode .grid-cell { border-color: rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); }
-        body.setting-mode .grid-cell.selected { background: rgba(0,122,204,0.5); border-color: #007acc; }
+        /* エフェクトポインター */
+        #pointerEffect { position: absolute; width: 30px; height: 30px; border: 2px solid red; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); opacity: 0; }
+        #pointerEffect::after { content: ''; position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; background: red; border-radius: 50%; transform: translate(-50%, -50%); }
+        .pointer-anim { animation: fadeout 1s ease-out forwards; }
+        @keyframes fadeout { 0% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); } }
 
-        /* コントロール & 操作エリア */
-        #controls { display: flex; padding: 5px; background: var(--panel); gap: 5px; }
-        #actions { flex: 1; padding: 10px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        /* UI部分 */
+        #uiContainer { flex: 1; display: flex; flex-direction: column; overflow-y: auto; background: var(--bg); }
+        #controls { display: flex; padding: 5px; background: var(--panel); gap: 5px; align-items: center; }
+        #areaSelect { flex: 2; padding: 10px; background: #3c3c3c; color: white; border: none; border-radius: 5px; font-weight: bold; }
+        #actions { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
         .btn-group { display: flex; gap: 5px; flex-wrap: wrap; }
-        
         button { flex: 1; background: #3c3c3c; color: #fff; border: none; padding: 12px; border-radius: 5px; font-weight: bold; touch-action: manipulation; }
         button:active { background: #555; }
         .btn-primary { background: var(--accent); }
-        
-        /* 微調整パッド (修正部分) */
-        #finePad { width: 60px; height: 60px; background: #444; border-radius: 10px; border: 2px solid #666; display: flex; justify-content: center; align-items: center; font-size: 10px; touch-action: none; margin: 0; flex: none; }
-        
-        /* アプリグリッド */
+        #finePad { width: 60px; height: 60px; background: #444; border-radius: 10px; border: 2px solid #666; display: flex; justify-content: center; align-items: center; font-size: 10px; touch-action: none; flex: none; }
         #appGrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
-        #appGrid button { padding: 8px 4px; font-size: 11px; }
+        #appGrid button { padding: 10px 4px; font-size: 12px; }
+
+        /* ランドスケープ（横向き）時 実質全画面化 */
+        @media (orientation: landscape) {
+            #screenArea { height: 100vh; width: 177.77vh; max-width: 100vw; margin: 0 auto; }
+            /* 下にスクロールすればボタンが見える状態 */
+        }
     </style>
 </head>
 <body>
 
-    <!-- 画像表示・タッチエリア -->
     <div id="screenArea">
-        <img id="screenImg" src="" alt="Waiting for PC...">
-        <div id="reticle"></div>
-        <div id="gridOverlay">
-            <div class="grid-cell" data-idx="0"></div><div class="grid-cell" data-idx="1"></div><div class="grid-cell" data-idx="2"></div>
-            <div class="grid-cell" data-idx="3"></div><div class="grid-cell" data-idx="4"></div><div class="grid-cell" data-idx="5"></div>
-            <div class="grid-cell" data-idx="6"></div><div class="grid-cell" data-idx="7"></div><div class="grid-cell" data-idx="8"></div>
-        </div>
+        <img id="screenImg" src="" alt="PC画面待ち...">
+        <div id="pointerEffect"></div>
     </div>
 
-    <!-- 中央コントロール -->
-    <div id="controls">
-        <button id="btnConnect" class="btn-primary">接続/切断</button>
-        <button id="btnSettings" style="background: #e67e22;">設定モード: OFF</button>
-    </div>
-
-    <!-- 下部アクション -->
-    <div id="actions">
-        <div class="btn-group">
-            <button onclick="sendAction({action:'click', button:'left'})">左クリック</button>
-            <button onclick="sendAction({action:'click', button:'right'})">右クリック</button>
-            <button id="btnDrag">ドラッグ: OFF</button>
-        </div>
-        
-        <!-- 【修正部分】スクロールと微調整パッドの並び -->
-        <div class="btn-group" style="align-items: center;">
-            <button onclick="sendAction({action:'scroll', value: 120})" style="height: 60px;">スクロール 上</button>
-            <div id="finePad">微調整<br>パッド</div>
-            <button onclick="sendAction({action:'scroll', value: -120})" style="height: 60px;">スクロール 下</button>
+    <div id="uiContainer">
+        <div id="controls">
+            <button id="btnConnect" class="btn-primary" style="flex:1;">接続</button>
+            <select id="areaSelect"></select>
+            <button onclick="sendAction({action:'click', button:'left'})" style="flex:1;">左クリック</button>
         </div>
 
-        <div style="font-size:12px; margin-top:5px;">アプリ起動:</div>
-        <div id="appGrid">
-            <script>
-                for(let i=1; i<=10; i++) {
-                    document.write(`<button onclick="sendAction({action:'launch_app', id:${i}})">App${i}</button>`);
-                }
-            </script>
+        <div id="actions">
+            <div class="btn-group">
+                <button onclick="sendAction({action:'click', button:'right'})">右クリック</button>
+                <button id="btnDrag">ドラッグ: OFF</button>
+            </div>
+            
+            <div class="btn-group" style="align-items: center;">
+                <button onclick="sendAction({action:'scroll', value: 120})" style="height: 60px;">スクロール 上</button>
+                <div id="finePad">微調整<br>パッド</div>
+                <button onclick="sendAction({action:'scroll', value: -120})" style="height: 60px;">スクロール 下</button>
+            </div>
+
+            <div style="font-size:12px; margin-top:5px; color:#aaa;">設定されたアプリ一覧:</div>
+            <div id="appGrid"></div>
         </div>
     </div>
 
     <script>
         let ws;
         let isConnected = false;
-        let isSettingMode = false;
         let isDragging = false;
-        let selectedGridCell = null;
-        let gridConfig = {};
+        let lastCursor = {x: 0.5, y: 0.5};
 
         const screenImg = document.getElementById('screenImg');
-        const reticle = document.getElementById('reticle');
+        const screenArea = document.getElementById('screenArea');
+        const pointerEffect = document.getElementById('pointerEffect');
         const btnConnect = document.getElementById('btnConnect');
-        const btnSettings = document.getElementById('btnSettings');
         const btnDrag = document.getElementById('btnDrag');
+        const areaSelect = document.getElementById('areaSelect');
+        const appGrid = document.getElementById('appGrid');
 
         function toggleConnection() {
-            if (isConnected) {
-                if(ws) ws.close();
-                return;
-            }
-            const host = window.location.hostname;
-            ws = new WebSocket(`ws://${host}:5360/`);
-            
+            if (isConnected) { if(ws) ws.close(); return; }
+            ws = new WebSocket(`ws://${window.location.hostname}:5360/`);
             ws.onopen = () => {
                 isConnected = true;
-                btnConnect.textContent = "切断";
-                btnConnect.style.background = "#e74c3c";
+                btnConnect.textContent = "切断"; btnConnect.style.background = "#e74c3c";
             };
             ws.onclose = () => {
                 isConnected = false;
-                btnConnect.textContent = "接続";
-                btnConnect.style.background = "var(--accent)";
-                screenImg.src = "";
-                reticle.style.display = "none";
+                btnConnect.textContent = "接続"; btnConnect.style.background = "var(--accent)";
+                screenImg.src = ""; appGrid.innerHTML = ""; areaSelect.innerHTML = "";
             };
             ws.onmessage = (e) => {
                 const msg = JSON.parse(e.data);
-                if (msg.type === "image") {
+                if (msg.type === "init") {
+                    appGrid.innerHTML = "";
+                    msg.apps.forEach(app => {
+                        const btn = document.createElement("button");
+                        btn.textContent = app.Name;
+                        btn.onclick = () => sendAction({action:'launch_app', id: app.Id});
+                        appGrid.appendChild(btn);
+                    });
+                    areaSelect.innerHTML = "<option value='-1'>全画面表示</option>";
+                    msg.areas.forEach((area, i) => {
+                        const opt = document.createElement("option");
+                        opt.value = i; opt.textContent = area.Name;
+                        areaSelect.appendChild(opt);
+                    });
+                } else if (msg.type === "image") {
                     screenImg.src = "data:image/jpeg;base64," + msg.data;
-                    if (msg.cursor) {
-                        reticle.style.display = "block";
-                        reticle.style.left = (msg.cursor.x * 100) + "%";
-                        reticle.style.top = (msg.cursor.y * 100) + "%";
-                    }
+                    if (msg.cursor) lastCursor = msg.cursor;
                 }
             };
         }
         btnConnect.addEventListener('click', toggleConnection);
 
+        areaSelect.addEventListener('change', (e) => {
+            sendAction({ action: 'change_area', index: parseInt(e.target.value) });
+        });
+
+        // アクション送信と同時にエフェクト発火
         function sendAction(data) {
-            if (isSettingMode && selectedGridCell !== null) {
-                gridConfig[selectedGridCell] = data;
-                document.querySelector(`.grid-cell[data-idx="${selectedGridCell}"]`).textContent = data.action === 'launch_app' ? `App${data.id}` : data.action;
-                document.querySelectorAll('.grid-cell').forEach(c => c.classList.remove('selected'));
-                selectedGridCell = null;
-                alert("割り当てました");
-                return;
-            }
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(data));
+                if (data.action === 'move') showPointerEffect(data.x, data.y);
+                else showPointerEffect(lastCursor.x, lastCursor.y);
             }
         }
 
@@ -150,68 +139,62 @@
             sendAction({action:'drag', state: isDragging ? 'down' : 'up'});
         });
 
-        const gridOverlay = document.getElementById('gridOverlay');
-        gridOverlay.addEventListener('touchmove', (e) => {
-            if (isSettingMode) return;
+        // 実際の画像描画サイズとオフセットを計算
+        function getActualImageRect() {
+            if (!screenImg.src || !screenImg.naturalWidth) return null;
+            const cw = screenArea.clientWidth, ch = screenArea.clientHeight;
+            const nw = screenImg.naturalWidth, nh = screenImg.naturalHeight;
+            const cr = cw / ch, nr = nw / nh;
+            let w, h, x, y;
+            if (nr > cr) { w = cw; h = cw / nr; x = 0; y = (ch - h) / 2; }
+            else { h = ch; w = ch * nr; x = (cw - w) / 2; y = 0; }
+            return { left: x, top: y, width: w, height: h };
+        }
+
+        function showPointerEffect(ratioX, ratioY) {
+            const rect = getActualImageRect();
+            if(!rect) return;
+            const px = rect.left + rect.width * ratioX;
+            const py = rect.top + rect.height * ratioY;
+            pointerEffect.style.left = px + "px";
+            pointerEffect.style.top = py + "px";
+            pointerEffect.classList.remove("pointer-anim");
+            void pointerEffect.offsetWidth; // 強制リフロー
+            pointerEffect.classList.add("pointer-anim");
+        }
+
+        // タップ操作時の正確な座標計算
+        screenArea.addEventListener('touchstart', (e) => handleTouch(e, true));
+        screenArea.addEventListener('touchmove', (e) => handleTouch(e, false));
+        function handleTouch(e, isTap) {
+            if (e.target !== screenArea && e.target !== screenImg) return;
             e.preventDefault();
-            const rect = gridOverlay.getBoundingClientRect();
+            const rect = getActualImageRect();
+            if (!rect) return;
+            const br = screenArea.getBoundingClientRect();
             const touch = e.touches[0];
-            let x = (touch.clientX - rect.left) / rect.width;
-            let y = (touch.clientY - rect.top) / rect.height;
-            x = Math.max(0, Math.min(1, x));
-            y = Math.max(0, Math.min(1, y));
-            sendAction({ action: "move", x: x, y: y });
-        });
-
-        document.querySelectorAll('.grid-cell').forEach(cell => {
-            cell.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                const idx = cell.getAttribute('data-idx');
-                if (isSettingMode) {
-                    document.querySelectorAll('.grid-cell').forEach(c => c.classList.remove('selected'));
-                    cell.classList.add('selected');
-                    selectedGridCell = idx;
-                } else {
-                    if (gridConfig[idx]) {
-                        sendAction(gridConfig[idx]);
-                    } else {
-                        const rect = gridOverlay.getBoundingClientRect();
-                        const touch = e.touches[0];
-                        let x = (touch.clientX - rect.left) / rect.width;
-                        let y = (touch.clientY - rect.top) / rect.height;
-                        sendAction({ action: "move", x: x, y: y });
-                    }
-                }
-            });
-        });
-
-        const finePad = document.getElementById('finePad');
-        let lastTouch = null;
-        finePad.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        });
-        finePad.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            if(!lastTouch) return;
-            let current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-            let dx = Math.round(current.x - lastTouch.x);
-            let dy = Math.round(current.y - lastTouch.y);
             
-            if (Math.abs(dx) > 0 || Math.abs(dy) > 0) {
-                sendAction({ action: "move_rel", dx: dx, dy: dy });
-                lastTouch = current;
-            }
-        });
-        finePad.addEventListener('touchend', () => { lastTouch = null; });
+            // screenArea内でのタッチ位置から、画像描画領域内の相対比率を計算
+            let x = (touch.clientX - br.left - rect.left) / rect.width;
+            let y = (touch.clientY - br.top - rect.top) / rect.height;
+            
+            // 範囲外クランプ
+            x = Math.max(0, Math.min(1, x)); y = Math.max(0, Math.min(1, y));
+            
+            if (isTap || e.type === 'touchmove') sendAction({ action: "move", x: x, y: y });
+        }
 
-        btnSettings.addEventListener('click', () => {
-            isSettingMode = !isSettingMode;
-            document.body.classList.toggle('setting-mode', isSettingMode);
-            btnSettings.textContent = `設定モード: ${isSettingMode ? 'ON' : 'OFF'}`;
-            selectedGridCell = null;
-            document.querySelectorAll('.grid-cell').forEach(c => c.classList.remove('selected'));
+        // 微調整パッド
+        const finePad = document.getElementById('finePad');
+        let fineTouch = null;
+        finePad.addEventListener('touchstart', (e) => { e.preventDefault(); fineTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY }; });
+        finePad.addEventListener('touchmove', (e) => {
+            e.preventDefault(); if(!fineTouch) return;
+            let cur = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            let dx = Math.round(cur.x - fineTouch.x), dy = Math.round(cur.y - fineTouch.y);
+            if (Math.abs(dx) > 0 || Math.abs(dy) > 0) { sendAction({ action: "move_rel", dx: dx, dy: dy }); fineTouch = cur; }
         });
+        finePad.addEventListener('touchend', () => { fineTouch = null; });
     </script>
 </body>
 </html>
