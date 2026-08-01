@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Web.Script.Serialization;
-using System.Linq; // 追加
+using System.Linq;
 
 namespace RemoteInputTool
 {
@@ -17,11 +17,9 @@ namespace RemoteInputTool
         private HttpListener _listener;
         private ScreenCapture _capture;
         private HashSet<string> _allowedIps;
+        private string ipsFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_ips.json");
         private JavaScriptSerializer _json = new JavaScriptSerializer();
         private readonly object _ipsLock = new object();
-        
-        // 【修正】カレントディレクトリに依存しない絶対パス化
-        private string ipsFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "allowed_ips.json");
 
         public WebServer(ScreenCapture capture)
         {
@@ -40,7 +38,6 @@ namespace RemoteInputTool
         public void Start()
         {
             _listener = new HttpListener();
-            // 【修正】* ではなく + を指定（管理者権限で確実にバインドさせるため）
             _listener.Prefixes.Add("http://+:5360/");
             _listener.Start();
             Task.Run(ListenLoop);
@@ -55,14 +52,12 @@ namespace RemoteInputTool
                 try
                 {
                     var context = await _listener.GetContextAsync();
-                    // 【修正】リクエスト処理を非同期に投げ、他の接続（favicon等）をブロックしないようにする
                     _ = Task.Run(() => ProcessRequestAsync(context));
                 }
                 catch { }
             }
         }
 
-        // 【修正】1リクエストごとの処理を独立化
         private async Task ProcessRequestAsync(HttpListenerContext context)
         {
             try
@@ -104,7 +99,6 @@ namespace RemoteInputTool
             }
             catch
             {
-                // エラー時も絶対にCloseを呼び、クライアントを無限ロードにさせない
                 try { context.Response.Close(); } catch { }
             }
         }
@@ -113,7 +107,6 @@ namespace RemoteInputTool
         {
             try 
             {
-                // 【追加】favicon 等の余分なリクエストには 404 を返し、無駄なファイル読み込みを防ぐ
                 if (context.Request.Url.AbsolutePath != "/")
                 {
                     context.Response.StatusCode = 404;
@@ -121,7 +114,6 @@ namespace RemoteInputTool
                     return;
                 }
 
-                // 【修正】絶対パスを使用してWebClient.htmlを読み込む
                 string htmlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebClient.html");
                 string html = File.ReadAllText(htmlPath);
                 
@@ -145,7 +137,6 @@ namespace RemoteInputTool
 
             Action<string> onImageCaptured = async (base64) =>
             {
-                // 【重要】ここの try-catch が無いと、スマホ切断時にアプリごとクラッシュする
                 try 
                 {
                     if (ws.State == WebSocketState.Open)
@@ -183,12 +174,9 @@ namespace RemoteInputTool
             catch { }
             finally
             {
-                // 【修正】確実な購読解除
                 _capture.OnFrameReady -= onImageCaptured;
             }
         }
-
-
 
         private void HandleCommand(Dictionary<string, object> cmd)
         {
