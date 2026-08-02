@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -14,7 +15,8 @@ namespace RemoteInputTool
         public static extern bool GetCursorPos(out POINT lpPoint);
         public struct POINT { public int X; public int Y; }
 
-        public event Action<string, double, double> OnFrameReady;
+        // Base64文字列ではなく、byte配列（バイナリ）を直接渡すように変更
+        public event Action<byte[], double, double> OnFrameReady;
         private bool _isRunning = false;
         
         private int _clientCount = 0;
@@ -42,20 +44,21 @@ namespace RemoteInputTool
         public void Stop()
         {
             _isRunning = false;
-            _clientConnectedEvent.Set(); // ブロック解除してループを抜けさせる
+            _clientConnectedEvent.Set();
         }
 
         private void CaptureLoop()
         {
             Bitmap bmp = null;
             Graphics g = null;
+            Bitmap scaledBmp = null;
+            Graphics scaledG = null;
             int lastW = 0, lastH = 0;
 
             ImageCodecInfo jpegCodec = GetEncoderInfo("image/jpeg");
 
             while (_isRunning)
             {
-                // クライアントが0の場合はここでスレッドが待機状態になり、CPU使用率0%になる
                 _clientConnectedEvent.Wait();
                 if (!_isRunning) break;
 
@@ -71,8 +74,26 @@ namespace RemoteInputTool
                 {
                     g?.Dispose();
                     bmp?.Dispose();
+                    scaledG?.Dispose();
+                    scaledBmp?.Dispose();
+
                     bmp = new Bitmap(width, height, PixelFormat.Format24bppRgb);
                     g = Graphics.FromImage(bmp);
+
+                    // 最大 1280x720 になるように縮小率を計算（アスペクト比維持）
+                    float scale = Math.Min(1280f / width, 720f / height);
+                    if (scale > 1f) scale = 1f; // 拡大はしない
+
+                    int scaledW = (int)(width * scale);
+                    int scaledH = (int)(height * scale);
+
+                    // 縮小用のビットマップとグラフィックス設定（高速性重視）
+                    scaledBmp = new Bitmap(scaledW, scaledH, PixelFormat.Format24bppRgb);
+                    scaledG = Graphics.FromImage(scaledBmp);
+                    scaledG.InterpolationMode = InterpolationMode.Low; // 高速縮小
+                    scaledG.CompositingQuality = CompositingQuality.HighSpeed;
+                    scaledG.SmoothingMode = SmoothingMode.HighSpeed;
+
                     lastW = width;
                     lastH = height;
                 }
@@ -80,6 +101,9 @@ namespace RemoteInputTool
                 try
                 {
                     g.CopyFromScreen(x, y, 0, 0, new Size(width, height), CopyPixelOperation.SourceCopy);
+                    
+                    // 縮小描画
+                    scaledG.DrawImage(bmp, 0, 0, scaledBmp.Width, scaledBmp.Height);
                     
                     GetCursorPos(out var pt);
                     double curX = (pt.X - x) / (double)width;
@@ -89,27 +113,26 @@ namespace RemoteInputTool
                     {
                         var encoderParams = new EncoderParameters(1);
                         encoderParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, MainWindow.AppConfig.Quality);
-                        bmp.Save(ms, jpegCodec, encoderParams);
                         
-                        OnFrameReady?.Invoke(Convert.ToBase64String(ms.ToArray()), curX, curY);
+                        // リサイズ後の画像をJPEG保存
+                        scaledBmp.Save(ms, jpegCodec, encoderParams);
+                        
+                        // 生のバイト配列をそのまま渡す
+                        OnFrameReady?.Invoke(ms.ToArray(), curX, curY);
                     }
                 }
-                catch
-                {
-                    // 画面ロック時やUAC表示時などは例外が出ることがあるため無視
-                }
+                catch { }
 
                 sw.Stop();
-                // 処理にかかった時間を差し引いてSleepすることでフレームレートを安定させる
                 int targetDelay = 1000 / Math.Max(1, MainWindow.AppConfig.Fps);
                 int delay = targetDelay - (int)sw.ElapsedMilliseconds;
-                
-                // CPUが1コアに張り付くのを防ぐため、最低でも1ミリ秒は必ずスレッドを休ませる
                 Thread.Sleep(Math.Max(1, delay));
             }
 
             g?.Dispose();
             bmp?.Dispose();
+            scaledG?.Dispose();
+            scaledBmp?.Dispose();
         }
 
         private ImageCodecInfo GetEncoderInfo(string mimeType)
