@@ -76,8 +76,21 @@
                                         <ComboBoxItem Content="Key"/>
                                         <ComboBoxItem Content="App"/>
                                     </ComboBox>
-                                    <TextBlock Text="値/パス:" VerticalAlignment="Center" Margin="5,0,0,0"/>
-                                    <TextBox Text="{Binding Detail, Mode=TwoWay}" Width="250" Margin="5,0" ToolTip="Mouse: Left/Right/Middle, Key: Enter/Ctrl+C等, App: exe等のパス"/>
+                                    <TextBlock Text="設定:" VerticalAlignment="Center" Margin="5,0,0,0"/>
+                                    
+                                    <!-- Mouse用UI -->
+                                    <ComboBox Visibility="{Binding IsMouseVisible}" SelectedValue="{Binding MouseAction, Mode=TwoWay}" SelectedValuePath="Content" Width="150" Margin="5,0">
+                                        <ComboBoxItem Content="Left"/>
+                                        <ComboBoxItem Content="Right"/>
+                                        <ComboBoxItem Content="Middle"/>
+                                    </ComboBox>
+                                    
+                                    <!-- Key用UI -->
+                                    <TextBox Visibility="{Binding IsKeyVisible}" Text="{Binding KeyDisplay}" Width="110" Margin="5,0" PreviewKeyDown="KeyTextBox_PreviewKeyDown" IsReadOnly="True" ToolTip="ここをクリックしてキーを入力"/>
+                                    <Button Visibility="{Binding IsKeyVisible}" Content="クリア" Click="ClearKey_Click" Margin="0,0,5,0" Width="35"/>
+                                    
+                                    <!-- App用UI -->
+                                    <TextBox Visibility="{Binding IsAppVisible}" Text="{Binding AppPath, Mode=TwoWay}" Width="150" Margin="5,0" ToolTip="実行ファイルのパス"/>
                                 </StackPanel>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
