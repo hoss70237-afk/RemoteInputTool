@@ -162,13 +162,11 @@ namespace RemoteInputTool
                 if (Interlocked.CompareExchange(ref isSending, 1, 0) != 0) return;
                 
                 try {
-                    // バイナリペイロード作成: [x(float:4byte)] + [y(float:4byte)] + [画像データ]
                     byte[] payload = new byte[8 + imgBytes.Length];
                     Buffer.BlockCopy(BitConverter.GetBytes((float)curX), 0, payload, 0, 4);
                     Buffer.BlockCopy(BitConverter.GetBytes((float)curY), 0, payload, 4, 4);
                     Buffer.BlockCopy(imgBytes, 0, payload, 8, imgBytes.Length);
 
-                    // 0x82 = Binary Frame
                     byte[] frame = CreateWebSocketFrame(payload, 0x82);
                     await stream.WriteAsync(frame, 0, frame.Length).ConfigureAwait(false);
                     await stream.FlushAsync().ConfigureAwait(false); 
@@ -206,7 +204,7 @@ namespace RemoteInputTool
         private byte[] CreateWebSocketFrame(byte[] payload, byte opcode)
         {
             int hl = payload.Length <= 125 ? 2 : (payload.Length <= 65535 ? 4 : 10);
-            byte[] f = new byte[hl + payload.Length]; f[0] = opcode; // 指定されたOpcodeを使用
+            byte[] f = new byte[hl + payload.Length]; f[0] = opcode;
             if (payload.Length <= 125) f[1] = (byte)payload.Length;
             else if (payload.Length <= 65535) { f[1] = 126; f[2] = (byte)(payload.Length >> 8); f[3] = (byte)(payload.Length & 255); }
             else { f[1] = 127; var len = BitConverter.GetBytes((ulong)payload.Length); if (BitConverter.IsLittleEndian) Array.Reverse(len); Array.Copy(len, 0, f, 2, 8); }
@@ -267,9 +265,9 @@ namespace RemoteInputTool
 
                     if (grid != null && index >= 0 && index < grid.Cells.Count) {
                         var cell = grid.Cells[index];
-                        if (cell.ActionType == "Mouse") InputEmulator.Click(cell.Detail);
-                        else if (cell.ActionType == "Key") InputEmulator.SendKey(cell.Detail);
-                        else if (cell.ActionType == "App" && File.Exists(cell.Detail)) System.Diagnostics.Process.Start(cell.Detail);
+                        if (cell.ActionType == "Mouse") InputEmulator.Click(cell.MouseAction);
+                        else if (cell.ActionType == "Key") InputEmulator.SendKeyCodes(cell.KeyCodes);
+                        else if (cell.ActionType == "App" && File.Exists(cell.AppPath)) System.Diagnostics.Process.Start(cell.AppPath);
                     }
                 }
             } catch { }
