@@ -51,7 +51,6 @@ namespace RemoteInputTool
             double targetPx = area.X + (area.Width * ratioX);
             double targetPy = area.Y + (area.Height * ratioY);
             
-            // Windows API の絶対座標は 65536 をかけるのが正しい仕様
             int dx = (int)Math.Round(((targetPx - screenLeft) / screenW) * 65536.0);
             int dy = (int)Math.Round(((targetPy - screenTop) / screenH) * 65536.0);
             
@@ -95,49 +94,23 @@ namespace RemoteInputTool
             SendInput(1, new[] { input }, Marshal.SizeOf(typeof(INPUT)));
         }
 
-        public static void SendKey(string keyData)
+        public static void SendKeyCodes(string keyCodesStr)
         {
-            if (string.IsNullOrWhiteSpace(keyData)) return;
-            var keys = keyData.Split('+');
-            List<ushort> vkeys = new List<ushort>();
-            foreach(var k in keys) {
-                string t = k.Trim().ToLower();
-                ushort vk = 0;
-                switch(t) {
-                    case "ctrl": case "control": vk = 0x11; break;
-                    case "shift": vk = 0x10; break;
-                    case "alt": vk = 0x12; break;
-                    case "enter": vk = 0x0D; break;
-                    case "space": vk = 0x20; break;
-                    case "tab": vk = 0x09; break;
-                    case "esc": case "escape": vk = 0x1B; break;
-                    case "win": case "windows": vk = 0x5B; break;
-                    case "back": case "backspace": vk = 0x08; break;
-                    case "del": case "delete": vk = 0x2E; break;
-                    case "up": vk = 0x26; break;
-                    case "down": vk = 0x28; break;
-                    case "left": vk = 0x25; break;
-                    case "right": vk = 0x27; break;
-                    default:
-                        if (t.Length == 1) vk = (ushort)char.ToUpper(t[0]);
-                        break;
-                }
-                if(vk != 0) vkeys.Add(vk);
+            if (string.IsNullOrWhiteSpace(keyCodesStr)) return;
+            var parts = keyCodesStr.Split(',');
+            var vkeys = new List<ushort>();
+            foreach(var p in parts) {
+                if(ushort.TryParse(p, out ushort vk)) vkeys.Add(vk);
             }
-
-            if(vkeys.Count == 0) return;
+            
+            if (vkeys.Count == 0) return;
 
             var inputs = new List<INPUT>();
             foreach(var vk in vkeys) {
-                var input = new INPUT { type = INPUT_KEYBOARD };
-                input.u.ki.wVk = vk;
-                inputs.Add(input);
+                inputs.Add(new INPUT { type = INPUT_KEYBOARD, u = new InputUnion { ki = new KEYBDINPUT { wVk = vk } } });
             }
             for(int i = vkeys.Count - 1; i >= 0; i--) {
-                var input = new INPUT { type = INPUT_KEYBOARD };
-                input.u.ki.wVk = vkeys[i];
-                input.u.ki.dwFlags = KEYEVENTF_KEYUP;
-                inputs.Add(input);
+                inputs.Add(new INPUT { type = INPUT_KEYBOARD, u = new InputUnion { ki = new KEYBDINPUT { wVk = vkeys[i], dwFlags = KEYEVENTF_KEYUP } } });
             }
 
             SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf(typeof(INPUT)));
