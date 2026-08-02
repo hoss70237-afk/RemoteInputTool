@@ -155,20 +155,22 @@ namespace RemoteInputTool
             _capture.AddClient();
 
             bool isConnected = true;
-            bool isSending = false; // ★遅延防止：現在送信中かどうかのフラグ
+            int isSending = 0; // スレッドセーフなフラグ (0: 未送信, 1: 送信中)
             
             Action<string, double, double> onImageCaptured = async (base64, curX, curY) => {
-                // 送信中であれば、処理待ちタスクが溜まって遅延するのを防ぐためにスキップ（フレームドロップ）
-                if (!isConnected || isSending) return;
+                if (!isConnected) return;
                 
-                isSending = true;
+                // 【遅延蓄積対策】送信中なら、このフレームは完全に無視(ドロップ)する
+                if (Interlocked.CompareExchange(ref isSending, 1, 0) != 0) return;
+                
                 try {
                     var payload = _json.Serialize(new { type = "image", data = base64, cursor = new { x = curX, y = curY } });
                     byte[] frame = CreateWebSocketFrame(Encoding.UTF8.GetBytes(payload));
-                    await stream.WriteAsync(frame, 0, frame.Length);
+                    await stream.WriteAsync(frame, 0, frame.Length).ConfigureAwait(false);
+                    await stream.FlushAsync().ConfigureAwait(false); // バッファに溜めず即座に送出を強制
                 } 
                 catch { isConnected = false; }
-                finally { isSending = false; }
+                finally { Interlocked.Exchange(ref isSending, 0); }
             };
 
             _capture.OnFrameReady += onImageCaptured;
