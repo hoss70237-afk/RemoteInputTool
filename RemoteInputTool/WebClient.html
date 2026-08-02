@@ -10,11 +10,9 @@
         
         #screenArea { position: relative; flex: none; width: 100vw; height: 56.25vw; max-height: 100vh; background: #000; display: flex; justify-content: center; align-items: center; touch-action: none; overflow: hidden; }
         
-        /* ズーム・パン対象のコンテナ */
         #imgContainer { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; transform-origin: center center; }
         #screenImg { max-width: 100%; max-height: 100%; object-fit: contain; pointer-events: none; }
         
-        /* グリッドオーバーレイ */
         #gridOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: none; }
         .grid-cell { border: 1px solid rgba(0, 255, 0, 0.5); display: flex; justify-content: center; align-items: center; color: rgba(0, 255, 0, 0.8); font-weight: bold; font-size: 2vw; text-shadow: 1px 1px 2px #000; }
         
@@ -36,7 +34,6 @@
         #appGrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
         #appGrid button { padding: 10px 4px; font-size: 12px; }
 
-        /* ダイアログUI */
         #modeDialog { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--panel); padding: 20px; border-radius: 10px; z-index: 100; border: 1px solid #555; width: 80%; max-width: 300px; }
         #modeDialog h3 { margin-top: 0; }
         #modeDialog select { width: 100%; padding: 10px; margin-bottom: 15px; background: #3c3c3c; color: white; border: none; border-radius: 5px; }
@@ -143,6 +140,10 @@
         function toggleConnection() {
             if (isConnected) { if(ws) ws.close(); return; }
             ws = new WebSocket(`ws://${window.location.hostname}:5360/`);
+            
+            // ★超重要：通信をバイナリとして受け取る
+            ws.binaryType = 'arraybuffer';
+            
             ws.onopen = () => {
                 isConnected = true;
                 btnConnect.textContent = "切断"; btnConnect.style.background = "#e74c3c";
@@ -152,31 +153,51 @@
                 btnConnect.textContent = "接続"; btnConnect.style.background = "var(--accent)";
                 screenImg.src = ""; appGrid.innerHTML = ""; areaSelect.innerHTML = "";
             };
+            
             ws.onmessage = (e) => {
-                const msg = JSON.parse(e.data);
-                if (msg.type === "init") {
-                    appGrid.innerHTML = "";
-                    msg.apps.forEach(app => {
-                        const btn = document.createElement("button");
-                        btn.textContent = app.Name;
-                        btn.onclick = () => sendAction({action:'launch_app', id: app.Id});
-                        appGrid.appendChild(btn);
-                    });
-                    areaSelect.innerHTML = "<option value='-1'>全画面表示</option>";
-                    msg.areas.forEach((area, i) => {
-                        const opt = document.createElement("option");
-                        opt.value = i; opt.textContent = area.Name;
-                        areaSelect.appendChild(opt);
-                    });
-                    serverGridConfig = {
-                        2: msg.grid2.Cells,
-                        4: msg.grid4.Cells,
-                        9: msg.grid9.Cells
-                    };
-                    renderGrid();
-                } else if (msg.type === "image") {
-                    screenImg.src = "data:image/jpeg;base64," + msg.data;
-                    if (msg.cursor) lastCursor = msg.cursor;
+                // バイナリフレーム（画像＋座標）の受信
+                if (e.data instanceof ArrayBuffer) {
+                    const view = new DataView(e.data);
+                    
+                    // 先頭8バイトから座標を復元（C#側はリトルエンディアンで書き込んでいる）
+                    const curX = view.getFloat32(0, true);
+                    const curY = view.getFloat32(4, true);
+                    lastCursor = { x: curX, y: curY };
+
+                    // 残りのバイト配列を取り出してブラウザネイティブのBlobにする（超高速表示）
+                    const imgBytes = new Uint8Array(e.data, 8);
+                    const blob = new Blob([imgBytes], { type: 'image/jpeg' });
+                    
+                    // メモリリーク防止のため古いURLは破棄する
+                    if (screenImg.src && screenImg.src.startsWith('blob:')) {
+                        URL.revokeObjectURL(screenImg.src);
+                    }
+                    screenImg.src = URL.createObjectURL(blob);
+                } 
+                // テキストフレーム（初期化データなど）の受信
+                else {
+                    const msg = JSON.parse(e.data);
+                    if (msg.type === "init") {
+                        appGrid.innerHTML = "";
+                        msg.apps.forEach(app => {
+                            const btn = document.createElement("button");
+                            btn.textContent = app.Name;
+                            btn.onclick = () => sendAction({action:'launch_app', id: app.Id});
+                            appGrid.appendChild(btn);
+                        });
+                        areaSelect.innerHTML = "<option value='-1'>全画面表示</option>";
+                        msg.areas.forEach((area, i) => {
+                            const opt = document.createElement("option");
+                            opt.value = i; opt.textContent = area.Name;
+                            areaSelect.appendChild(opt);
+                        });
+                        serverGridConfig = {
+                            2: msg.grid2.Cells,
+                            4: msg.grid4.Cells,
+                            9: msg.grid9.Cells
+                        };
+                        renderGrid();
+                    }
                 }
             };
         }
@@ -276,9 +297,8 @@
             }
         }
 
-        // 画像の実際の描画領域と余白を計算して完璧な相対座標を返す
         function getRelativeCursorPos(clientX, clientY) {
-            const rect = screenImg.getBoundingClientRect(); // 変形済みの矩形
+            const rect = screenImg.getBoundingClientRect(); 
             const nw = screenImg.naturalWidth;
             const nh = screenImg.naturalHeight;
             if (!nw || !nh) return {x: 0.5, y: 0.5};
@@ -336,7 +356,6 @@
             pointerEffect.classList.add("pointer-anim");
         }
 
-        // ズーム・パン・タップ操作処理
         let touchStartY = 0, touchStartX = 0;
         let initialScale = 1.0, initialTx = 0, initialTy = 0;
         let hasMoved = false;
