@@ -67,7 +67,7 @@ namespace RemoteInputTool
                 grid9 = MainWindow.AppConfig.Grid9
             };
             var data = Encoding.UTF8.GetBytes(_json.Serialize(initData));
-            var frame = CreateWebSocketFrame(data);
+            var frame = CreateWebSocketFrame(data, 0x81); // Text Frame
             
             lock (_lock) {
                 foreach(var c in _clients.ToList()) {
@@ -155,19 +155,23 @@ namespace RemoteInputTool
             _capture.AddClient();
 
             bool isConnected = true;
-            int isSending = 0; // スレッドセーフなフラグ (0: 未送信, 1: 送信中)
+            int isSending = 0; 
             
-            Action<string, double, double> onImageCaptured = async (base64, curX, curY) => {
+            Action<byte[], double, double> onImageCaptured = async (imgBytes, curX, curY) => {
                 if (!isConnected) return;
-                
-                // 【遅延蓄積対策】送信中なら、このフレームは完全に無視(ドロップ)する
                 if (Interlocked.CompareExchange(ref isSending, 1, 0) != 0) return;
                 
                 try {
-                    var payload = _json.Serialize(new { type = "image", data = base64, cursor = new { x = curX, y = curY } });
-                    byte[] frame = CreateWebSocketFrame(Encoding.UTF8.GetBytes(payload));
+                    // バイナリペイロード作成: [x(float:4byte)] + [y(float:4byte)] + [画像データ]
+                    byte[] payload = new byte[8 + imgBytes.Length];
+                    Buffer.BlockCopy(BitConverter.GetBytes((float)curX), 0, payload, 0, 4);
+                    Buffer.BlockCopy(BitConverter.GetBytes((float)curY), 0, payload, 4, 4);
+                    Buffer.BlockCopy(imgBytes, 0, payload, 8, imgBytes.Length);
+
+                    // 0x82 = Binary Frame
+                    byte[] frame = CreateWebSocketFrame(payload, 0x82);
                     await stream.WriteAsync(frame, 0, frame.Length).ConfigureAwait(false);
-                    await stream.FlushAsync().ConfigureAwait(false); // バッファに溜めず即座に送出を強制
+                    await stream.FlushAsync().ConfigureAwait(false); 
                 } 
                 catch { isConnected = false; }
                 finally { Interlocked.Exchange(ref isSending, 0); }
@@ -199,10 +203,10 @@ namespace RemoteInputTool
             }
         }
 
-        private byte[] CreateWebSocketFrame(byte[] payload)
+        private byte[] CreateWebSocketFrame(byte[] payload, byte opcode)
         {
             int hl = payload.Length <= 125 ? 2 : (payload.Length <= 65535 ? 4 : 10);
-            byte[] f = new byte[hl + payload.Length]; f[0] = 0x81;
+            byte[] f = new byte[hl + payload.Length]; f[0] = opcode; // 指定されたOpcodeを使用
             if (payload.Length <= 125) f[1] = (byte)payload.Length;
             else if (payload.Length <= 65535) { f[1] = 126; f[2] = (byte)(payload.Length >> 8); f[3] = (byte)(payload.Length & 255); }
             else { f[1] = 127; var len = BitConverter.GetBytes((ulong)payload.Length); if (BitConverter.IsLittleEndian) Array.Reverse(len); Array.Copy(len, 0, f, 2, 8); }
